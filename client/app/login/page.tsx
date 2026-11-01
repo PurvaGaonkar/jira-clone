@@ -29,9 +29,7 @@ const Page = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -44,42 +42,47 @@ const Page = () => {
     setIsLoading(true);
 
     try {
-      let response;
+      const response = isSignUp
+        ? await axiosInstance.post("/api/users/signup", {
+            name: formData.name,
+            email: formData.email,
+            password: formData.password,
+            role: "USER",
+            avatar: "https://i.pravatar.cc/150?u=john",
+          })
+        : await axiosInstance.post("/api/users/login", {
+            email: formData.email,
+            password: formData.password,
+          });
 
-      if (isSignUp) {
-        response = await axiosInstance.post("/api/users/signup", {
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-          role: "USER",
-          avatar: "https://i.pravatar.cc/150?u=john",
-        });
+      const data = response.data?.data ?? response.data;
 
-        router.push("/setup-project");
-      } else {
-        response = await axiosInstance.post("/api/users/login", {
-          email: formData.email,
-          password: formData.password,
-        });
+      const token = data?.sessionToken ?? data?.token;
+      const user = data?.user ?? data;
 
-        router.push("/");
+      if (!token) {
+        console.error("Authentication response:", response.data);
+        throw new Error(
+          "The server did not return a session token. Check the backend login response."
+        );
       }
 
-      const user = response.data;
-
-      if (user.sessionToken) {
-        localStorage.setItem("sessionToken", user.sessionToken);
-      } else {
-        throw new Error("Session token was not returned by the server.");
+      if (!user?.id) {
+        console.error("Authentication response:", response.data);
+        throw new Error("User details were not returned by the server.");
       }
 
-      login(user);
+      login(user, token);
+
+      router.replace(isSignUp ? "/setup-project" : "/");
     } catch (err: any) {
       setError(
         err.response?.data?.message ||
+          err.response?.data ||
           err.message ||
           "Something went wrong. Please try again."
       );
+
       console.error("Authentication error:", err);
     } finally {
       setIsLoading(false);
@@ -109,7 +112,7 @@ const Page = () => {
           {error && (
             <div className="mb-4 flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              {error}
+              {String(error)}
             </div>
           )}
 
@@ -161,11 +164,7 @@ const Page = () => {
               />
             </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
+            <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading
                 ? "Please wait..."
                 : isSignUp

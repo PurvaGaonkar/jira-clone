@@ -37,6 +37,9 @@ public class Issue {
 
     private List<String> comments;
 
+    // Task deadline
+    private Instant dueDate;
+
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -162,6 +165,14 @@ public class Issue {
 
     public void setComments(List<String> comments) {
         this.comments = comments;
+    }
+
+    public Instant getDueDate() {
+        return dueDate;
+    }
+
+    public void setDueDate(Instant dueDate) {
+        this.dueDate = dueDate;
     }
 
     public Instant getCreatedAt() {

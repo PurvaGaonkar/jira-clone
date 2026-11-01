@@ -5,6 +5,7 @@ import com.example.jira.model.Issue;
 import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
+import java.time.Instant;
 import java.util.List;
 
 public interface IssueRepository extends MongoRepository<Issue, ObjectId> {
@@ -16,4 +17,7 @@ public interface IssueRepository extends MongoRepository<Issue, ObjectId> {
 
     // Find tasks that depend on a particular issue
     List<Issue> findByDependsOnIssueIdsContaining(String issueId);
+
+    // Find tasks with deadlines in a given time range
+    List<Issue> findByDueDateBetween(Instant start, Instant end);
 }

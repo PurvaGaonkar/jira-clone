@@ -32,6 +32,9 @@ public class User {
 
     private boolean active = true;
 
+    // Email notification preference
+    private boolean emailNotificationsEnabled = true;
+
     private Instant createdAt = Instant.now();
 
     public String getId() {
@@ -112,5 +115,14 @@ public class User {
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
 
+    public boolean isEmailNotificationsEnabled() {
+        return emailNotificationsEnabled;
+    }
+
+    public void setEmailNotificationsEnabled(boolean enabled) {
+        this.emailNotificationsEnabled = enabled;
+    }
+
     public Instant getCreatedAt() { return createdAt; }
 }
+

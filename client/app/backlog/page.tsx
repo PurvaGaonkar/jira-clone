@@ -5,6 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/Axiosinstance";
+import RealtimeIssueSync from "@/components/RealtimeIssueSync";
+import { IssueEvent } from "@/lib/realtime";
 import {
   ChevronDown,
   ChevronRight,
@@ -95,13 +97,32 @@ const Page = () => {
     void fetchData();
   }, [fetchData]);
 
-  const activeSprint = sprints.find(
-    (sprint) => sprint.status?.toUpperCase() === "ACTIVE"
-  ) ?? null;
+  const handleRealtimeEvent = useCallback(
+    (event: IssueEvent) => {
+      if (event.action === "DELETED") {
+        const deletedId = event.issue?.id;
 
-  const plannedSprint = sprints.find(
-    (sprint) => sprint.status?.toUpperCase() === "PLANNED"
-  ) ?? null;
+        if (deletedId) {
+          setIssues((current) =>
+            current.filter((issue) => issue.id !== deletedId)
+          );
+        }
+        return;
+      }
+
+      // Reload from the backend to keep the complete issue data in sync.
+      void fetchData();
+    },
+    [fetchData]
+  );
+
+  const activeSprint =
+    sprints.find((sprint) => sprint.status?.toUpperCase() === "ACTIVE") ??
+    null;
+
+  const plannedSprint =
+    sprints.find((sprint) => sprint.status?.toUpperCase() === "PLANNED") ??
+    null;
 
   const sprintIssues = activeSprint
     ? issues.filter((issue) => issue.sprintId === activeSprint.id)
@@ -126,7 +147,9 @@ const Page = () => {
 
   const createIssue = async () => {
     if (!newTitle.trim() || !selectedProject?.id || !user?.id) {
-      setError("Enter an issue title and make sure a project and user are selected.");
+      setError(
+        "Enter an issue title and make sure a project and user are selected."
+      );
       return;
     }
 
@@ -224,6 +247,13 @@ const Page = () => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-6">
+      {selectedProject?.id && (
+        <RealtimeIssueSync
+          projectId={selectedProject.id}
+          onIssueEvent={handleRealtimeEvent}
+        />
+      )}
+
       <div className="mb-6 flex flex-col gap-4">
         <div className="flex items-center gap-2 text-sm text-[#5E6C84]">
           <span>Projects</span>
@@ -284,7 +314,6 @@ const Page = () => {
         </div>
       ) : (
         <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-
           {showSprintForm && (
             <section className="rounded-md border bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -387,10 +416,7 @@ const Page = () => {
           )}
 
           <section>
-            <SectionHeader
-              title="Backlog"
-              count={backlogIssues.length}
-            />
+            <SectionHeader title="Backlog" count={backlogIssues.length} />
 
             <div className="divide-y rounded-b-md border border-t-0">
               {backlogIssues.map((issue) => (
@@ -530,11 +556,7 @@ const BacklogItem = ({
         </Avatar>
 
         {actionLabel && onAction && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onAction}
-          >
+          <Button size="sm" variant="outline" onClick={onAction}>
             {actionLabel === "Remove" ? (
               <X className="mr-1 h-3 w-3" />
             ) : (

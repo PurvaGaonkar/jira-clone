@@ -3,6 +3,8 @@ package com.example.jira.controller;
 
 import com.example.jira.model.Issue;
 import com.example.jira.repository.IssueRepository;
+import com.example.jira.service.IssueEventPublisher;
+import com.example.jira.service.NotificationService;
 
 import org.bson.types.ObjectId;
 import org.springframework.web.bind.annotation.*;
@@ -19,9 +21,16 @@ import java.util.Set;
 public class IssueController {
 
     private final IssueRepository issueRepository;
+    private final IssueEventPublisher eventPublisher;
+    private final NotificationService notificationService;
 
-    public IssueController(IssueRepository issueRepository) {
+    public IssueController(
+            IssueRepository issueRepository,
+            IssueEventPublisher eventPublisher,
+            NotificationService notificationService) {
         this.issueRepository = issueRepository;
+        this.eventPublisher = eventPublisher;
+        this.notificationService = notificationService;
     }
 
     // CREATE NORMAL ISSUE
@@ -43,7 +52,12 @@ public class IssueController {
 
         issue.setUpdatedAt(Instant.now());
 
-        return issueRepository.save(issue);
+        Issue saved = issueRepository.save(issue);
+        eventPublisher.publish(saved, "CREATED");
+
+        notifyAssignment(saved);
+
+        return saved;
     }
 
     // CREATE SUBTASK
@@ -68,14 +82,18 @@ public class IssueController {
         subtask.setDependsOnIssueIds(new ArrayList<>());
         subtask.setUpdatedAt(Instant.now());
 
-        return issueRepository.save(subtask);
+        Issue saved = issueRepository.save(subtask);
+        eventPublisher.publish(saved, "CREATED");
+
+        notifyAssignment(saved);
+
+        return saved;
     }
 
     // GET ISSUES BY PROJECT
     @GetMapping("/project/{projectId}")
     public List<Issue> getIssuesByProject(
             @PathVariable String projectId) {
-
         return issueRepository.findByProjectId(projectId);
     }
 
@@ -91,7 +109,6 @@ public class IssueController {
             @PathVariable String parentId) {
 
         getIssue(parentId);
-
         return issueRepository.findByParentIssueId(parentId);
     }
 
@@ -103,7 +120,11 @@ public class IssueController {
 
         Issue issue = getIssue(id);
 
+        String oldStatus = issue.getStatus();
+        String oldAssigneeId = issue.getAssigneeId();
+
         String newStatus = updated.getStatus();
+        String newAssigneeId = updated.getAssigneeId();
 
         // PREVENT COMPLETING PARENT WITH INCOMPLETE SUBTASKS
         if ("DONE".equalsIgnoreCase(newStatus)
@@ -137,7 +158,7 @@ public class IssueController {
         issue.setDescription(updated.getDescription());
         issue.setStatus(newStatus);
         issue.setPriority(updated.getPriority());
-        issue.setAssigneeId(updated.getAssigneeId());
+        issue.setAssigneeId(newAssigneeId);
         issue.setOrder(updated.getOrder());
         issue.setComments(updated.getComments());
         issue.setUpdatedAt(Instant.now());
@@ -154,7 +175,82 @@ public class IssueController {
             );
         }
 
-        return issueRepository.save(issue);
+        Issue saved = issueRepository.save(issue);
+        eventPublisher.publish(saved, "UPDATED");
+
+        // Notify only when the assignee actually changes.
+        if (newAssigneeId != null
+                && !newAssigneeId.equals(oldAssigneeId)) {
+            notifyAssignment(saved);
+        }
+
+        // Notify assignee and reporter when status changes.
+        if (newStatus != null
+                && !newStatus.equalsIgnoreCase(
+                        oldStatus == null ? "" : oldStatus)) {
+            notifyStatusChange(saved);
+        }
+
+        return saved;
+    }
+
+    // NOTIFY NEW ASSIGNEE
+    private void notifyAssignment(Issue issue) {
+
+        if (issue.getAssigneeId() == null) {
+            return;
+        }
+
+        String eventKey = issue.getId()
+                + ":ASSIGNED:"
+                + issue.getUpdatedAt().toEpochMilli();
+
+        notificationService.notifyIssueEvent(
+                issue.getAssigneeId(),
+                issue.getProjectId(),
+                issue.getId(),
+                issue.getSprintId(),
+                "TASK_ASSIGNED",
+                eventKey,
+                "Task assigned to you",
+                "You have been assigned task: " + issue.getTitle()
+        );
+    }
+
+    // NOTIFY ASSIGNEE AND REPORTER ABOUT STATUS CHANGE
+    private void notifyStatusChange(Issue issue) {
+
+        Set<String> recipients = new HashSet<>();
+
+        if (issue.getAssigneeId() != null) {
+            recipients.add(issue.getAssigneeId());
+        }
+
+        if (issue.getReporterId() != null) {
+            recipients.add(issue.getReporterId());
+        }
+
+        for (String recipientId : recipients) {
+
+            String eventKey = issue.getId()
+                    + ":STATUS:"
+                    + issue.getUpdatedAt().toEpochMilli()
+                    + ":"
+                    + recipientId;
+
+            notificationService.notifyIssueEvent(
+                    recipientId,
+                    issue.getProjectId(),
+                    issue.getId(),
+                    issue.getSprintId(),
+                    "TASK_STATUS_CHANGED",
+                    eventKey,
+                    "Task status updated",
+                    "Task '" + issue.getTitle()
+                            + "' status changed to "
+                            + issue.getStatus()
+            );
+        }
     }
 
     // ADD OR REPLACE DEPENDENCIES
@@ -164,13 +260,14 @@ public class IssueController {
             @RequestBody List<String> dependencyIds) {
 
         Issue issue = getIssue(id);
-
         validateDependencies(issue, dependencyIds);
 
         issue.setDependsOnIssueIds(dependencyIds);
         issue.setUpdatedAt(Instant.now());
 
-        return issueRepository.save(issue);
+        Issue saved = issueRepository.save(issue);
+        eventPublisher.publish(saved, "UPDATED");
+        return saved;
     }
 
     // CHECK WHETHER ALL DEPENDENCIES ARE COMPLETED
@@ -183,7 +280,6 @@ public class IssueController {
         }
 
         for (String dependencyId : dependencies) {
-
             Issue dependency = getIssue(dependencyId);
 
             if (!"DONE".equalsIgnoreCase(dependency.getStatus())) {
@@ -199,9 +295,7 @@ public class IssueController {
             Issue issue,
             List<String> dependencyIds) {
 
-        if (dependencyIds == null) {
-            return;
-        }
+        if (dependencyIds == null) return;
 
         Set<String> uniqueIds = new HashSet<>(dependencyIds);
 
@@ -246,29 +340,18 @@ public class IssueController {
             String targetId,
             Set<String> visited) {
 
-        if (currentId.equals(targetId)) {
-            return true;
-        }
-
-        if (!visited.add(currentId)) {
-            return false;
-        }
+        if (currentId.equals(targetId)) return true;
+        if (!visited.add(currentId)) return false;
 
         Issue current = getIssue(currentId);
-
         List<String> dependencies =
                 current.getDependsOnIssueIds();
 
-        if (dependencies == null) {
-            return false;
-        }
+        if (dependencies == null) return false;
 
         for (String dependencyId : dependencies) {
-
             if (hasCircularDependency(
-                    dependencyId,
-                    targetId,
-                    visited)) {
+                    dependencyId, targetId, visited)) {
                 return true;
             }
         }
@@ -292,11 +375,11 @@ public class IssueController {
         }
 
         issueRepository.deleteById(validateId(id));
+        eventPublisher.publish(issue, "DELETED");
     }
 
     // HELPER: GET ISSUE
     private Issue getIssue(String id) {
-
         return issueRepository.findById(validateId(id))
                 .orElseThrow(() ->
                     new RuntimeException("Issue not found"));
@@ -304,12 +387,9 @@ public class IssueController {
 
     // HELPER: VALIDATE OBJECT ID
     private ObjectId validateId(String id) {
-
         if (id == null || !ObjectId.isValid(id)) {
             throw new RuntimeException("Invalid issue ID");
         }
-
         return new ObjectId(id);
     }
 }
-
