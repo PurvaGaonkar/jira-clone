@@ -44,7 +44,7 @@ const Sidebar = () => {
         const userProjects = res.data.filter(
           (item: any) =>
             item.ownerId === user.id ||
-            item.memberIds?.includes(user.id)
+           Array.isArray(item.memberIds) && item.memberIds.includes(user.id)
         );
 
         setProject(userProjects);

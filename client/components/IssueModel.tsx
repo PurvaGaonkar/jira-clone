@@ -29,6 +29,15 @@ const typeIcons: Record<string, string> = {
   SUBTASK: "↳",
 };
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+const allowedTypes = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
 const IssueModel = ({ issue, isOpen, onClose }: any) => {
   const { user } = useAuth();
 
@@ -46,8 +55,14 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
   const [dependencyLoading, setDependencyLoading] = useState(false);
 
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentLoading, setAttachmentLoading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
+
   const [error, setError] = useState("");
 
+  // INITIALIZE ISSUE
   useEffect(() => {
     if (!isOpen || !issue?.id) return;
 
@@ -56,6 +71,9 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     setSubtaskTitle("");
     setSubtaskDescription("");
     setError("");
+    setAttachmentError("");
+    setAttachmentFile(null);
+    setAttachments([]);
     setSelectedDependencies(issue.dependsOnIssueIds || []);
   }, [isOpen, issue?.id]);
 
@@ -113,6 +131,115 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     fetchRelatedIssues();
   }, [isOpen, localIssue?.id, localIssue?.projectId, localIssue?.type]);
 
+  // FETCH ATTACHMENTS
+  const fetchAttachments = async () => {
+    if (!localIssue?.id) return;
+
+    try {
+      setAttachmentError("");
+
+      const res = await axiosInstance.get(
+        `/api/attachments/issue/${localIssue.id}`
+      );
+
+      setAttachments(Array.isArray(res.data) ? res.data : []);
+    } catch (err: any) {
+      setAttachmentError(
+        err.response?.data?.message || "Failed to load attachments"
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && localIssue?.id) {
+      fetchAttachments();
+    }
+  }, [isOpen, localIssue?.id]);
+
+  // UPLOAD ATTACHMENT
+  const uploadAttachment = async () => {
+    if (!attachmentFile || !localIssue) return;
+
+    if (!allowedTypes.includes(attachmentFile.type)) {
+      setAttachmentError("Only PDF, PNG, JPG and DOCX files are allowed.");
+      return;
+    }
+
+    if (attachmentFile.size > MAX_FILE_SIZE) {
+      setAttachmentError("File size must not exceed 10MB.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", attachmentFile);
+
+    try {
+      setAttachmentLoading(true);
+      setAttachmentError("");
+
+      await axiosInstance.post(
+        `/api/attachments/issue/${localIssue.id}`,
+        formData
+      );
+
+      setAttachmentFile(null);
+
+      const fileInput = document.getElementById(
+        "issue-attachment-input"
+      ) as HTMLInputElement | null;
+
+      if (fileInput) fileInput.value = "";
+
+      await fetchAttachments();
+    } catch (err: any) {
+      setAttachmentError(
+        err.response?.data?.message || "File upload failed"
+      );
+    } finally {
+      setAttachmentLoading(false);
+    }
+  };
+
+  // DOWNLOAD ATTACHMENT
+  const downloadAttachment = async (attachment: any) => {
+    try {
+      const res = await axiosInstance.get(
+        `/api/attachments/${attachment.id}/download`,
+        { responseType: "blob" }
+      );
+
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = attachment.originalFileName || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setAttachmentError("Failed to download file.");
+    }
+  };
+
+  // DELETE ATTACHMENT
+  const deleteAttachment = async (attachmentId: string) => {
+    try {
+      setAttachmentError("");
+
+      await axiosInstance.delete(
+        `/api/attachments/${attachmentId}`
+      );
+
+      await fetchAttachments();
+    } catch (err: any) {
+      setAttachmentError(
+        err.response?.data?.message || "Failed to delete attachment"
+      );
+    }
+  };
+
   // SAVE COMMENT
   const saveComment = async () => {
     if (!commentText.trim() || !user || !localIssue) return;
@@ -150,7 +277,9 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
 
       setCommentText("");
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to save comment");
+      setError(
+        err.response?.data?.message || "Failed to save comment"
+      );
       console.error("Failed to save comment", err);
     } finally {
       setLoading(false);
@@ -182,7 +311,9 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
       setSubtaskTitle("");
       setSubtaskDescription("");
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to create subtask");
+      setError(
+        err.response?.data?.message || "Failed to create subtask"
+      );
     } finally {
       setSubtaskLoading(false);
     }
@@ -204,7 +335,9 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
         )
       );
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to update subtask");
+      setError(
+        err.response?.data?.message || "Failed to update subtask"
+      );
     }
   };
 
@@ -289,6 +422,96 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
                   {error}
                 </div>
               )}
+
+              {/* ATTACHMENTS */}
+              <section className="mb-8">
+                <h3 className="text-sm font-semibold mb-3">
+                  Attachments ({attachments.length})
+                </h3>
+
+                <div className="rounded-md border p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      id="issue-attachment-input"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.docx"
+                      className="block w-full text-sm"
+                      onChange={(e) => {
+                        setAttachmentFile(e.target.files?.[0] || null);
+                        setAttachmentError("");
+                      }}
+                    />
+
+                    <Button
+                      size="sm"
+                      onClick={uploadAttachment}
+                      disabled={!attachmentFile || attachmentLoading}
+                    >
+                      {attachmentLoading ? "Uploading..." : "Upload"}
+                    </Button>
+                  </div>
+
+                  <p className="text-xs text-gray-500">
+                    Allowed: PDF, PNG, JPG, DOCX. Maximum size: 10MB.
+                  </p>
+
+                  {attachmentError && (
+                    <p className="text-sm text-red-600">
+                      {attachmentError}
+                    </p>
+                  )}
+
+                  {attachments.length > 0 ? (
+                    <div className="space-y-2">
+                      {attachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium break-all">
+                              {attachment.originalFileName}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {(
+                                (attachment.size || 0) /
+                                (1024 * 1024)
+                              ).toFixed(2)}{" "}
+                              MB
+                            </p>
+                          </div>
+
+                          <div className="flex gap-2 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                downloadAttachment(attachment)
+                              }
+                            >
+                              Download
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() =>
+                                deleteAttachment(attachment.id)
+                              }
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No attachments uploaded yet.
+                    </p>
+                  )}
+                </div>
+              </section>
 
               {/* SUBTASK SECTION */}
               {localIssue.type !== "SUBTASK" && (

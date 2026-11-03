@@ -42,16 +42,18 @@ const Page = () => {
     setIsLoading(true);
 
     try {
+      const email = formData.email.trim();
+
       const response = isSignUp
         ? await axiosInstance.post("/api/users/signup", {
-            name: formData.name,
-            email: formData.email,
+            name: formData.name.trim(),
+            email,
             password: formData.password,
             role: "USER",
             avatar: "https://i.pravatar.cc/150?u=john",
           })
         : await axiosInstance.post("/api/users/login", {
-            email: formData.email,
+            email,
             password: formData.password,
           });
 
@@ -62,9 +64,7 @@ const Page = () => {
 
       if (!token) {
         console.error("Authentication response:", response.data);
-        throw new Error(
-          "The server did not return a session token. Check the backend login response."
-        );
+        throw new Error("Session token was not returned by the server.");
       }
 
       if (!user?.id) {
@@ -75,15 +75,25 @@ const Page = () => {
       login(user, token);
 
       router.replace(isSignUp ? "/setup-project" : "/");
+
     } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-          err.response?.data ||
-          err.message ||
-          "Something went wrong. Please try again."
+      console.error(
+        "Authentication error:",
+        err.response?.data || err
       );
 
-      console.error("Authentication error:", err);
+      const serverMessage =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (typeof err.response?.data === "string"
+          ? err.response.data
+          : null);
+
+      setError(
+        serverMessage ||
+        err.message ||
+        "Something went wrong. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }

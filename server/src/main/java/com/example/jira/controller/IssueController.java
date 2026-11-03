@@ -5,6 +5,7 @@ import com.example.jira.model.Issue;
 import com.example.jira.repository.IssueRepository;
 import com.example.jira.service.IssueEventPublisher;
 import com.example.jira.service.NotificationService;
+import com.example.jira.service.AttachmentService;
 
 import org.bson.types.ObjectId;
 import org.springframework.web.bind.annotation.*;
@@ -23,14 +24,17 @@ public class IssueController {
     private final IssueRepository issueRepository;
     private final IssueEventPublisher eventPublisher;
     private final NotificationService notificationService;
+    private final AttachmentService attachmentService;
 
     public IssueController(
             IssueRepository issueRepository,
             IssueEventPublisher eventPublisher,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            AttachmentService attachmentService) {
         this.issueRepository = issueRepository;
         this.eventPublisher = eventPublisher;
         this.notificationService = notificationService;
+        this.attachmentService = attachmentService;
     }
 
     // CREATE NORMAL ISSUE
@@ -178,13 +182,11 @@ public class IssueController {
         Issue saved = issueRepository.save(issue);
         eventPublisher.publish(saved, "UPDATED");
 
-        // Notify only when the assignee actually changes.
         if (newAssigneeId != null
                 && !newAssigneeId.equals(oldAssigneeId)) {
             notifyAssignment(saved);
         }
 
-        // Notify assignee and reporter when status changes.
         if (newStatus != null
                 && !newStatus.equalsIgnoreCase(
                         oldStatus == null ? "" : oldStatus)) {
@@ -359,7 +361,7 @@ public class IssueController {
         return false;
     }
 
-    // DELETE ISSUE
+    // DELETE ISSUE AND ITS ATTACHMENTS
     @DeleteMapping("/{id}")
     public void deleteIssue(@PathVariable String id) {
 
@@ -373,6 +375,9 @@ public class IssueController {
                 "Delete subtasks before deleting the parent task"
             );
         }
+
+        // Delete attachment files and their MongoDB records first.
+        attachmentService.deleteAllForIssue(id);
 
         issueRepository.deleteById(validateId(id));
         eventPublisher.publish(issue, "DELETED");

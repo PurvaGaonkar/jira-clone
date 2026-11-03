@@ -26,9 +26,12 @@ const page = () => {
     try {
       setloading(true);
       const res = await axiosInstance.get("api/projects");
-      const userproject = res.data?.filter(
-        (p: any) => p.ownerId === user?.id || p.memberIds.includes(user?.id),
-      );
+     const userproject = (Array.isArray(res.data) ? res.data : []).filter(
+  (p: any) =>
+    p &&
+    (p.ownerId === user?.id ||
+      (Array.isArray(p.memberIds) && p.memberIds.includes(user?.id))),
+);
       setProject(userproject);
     } catch (error) {
       console.error(error);

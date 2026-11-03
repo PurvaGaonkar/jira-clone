@@ -1,4 +1,3 @@
-
 import { Client, IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
@@ -21,34 +20,59 @@ export function connectRealtime(
       ? localStorage.getItem("sessionToken")
       : null;
 
-  if (!token || !projectId) return () => {};
+  if (!token || !projectId) {
+    console.warn("WebSocket not started: missing token or projectId", {
+      hasToken: !!token,
+      projectId,
+    });
+    return () => {};
+  }
 
-  client?.deactivate();
+  // Close any previous connection.
+  if (client) {
+    void client.deactivate();
+    client = null;
+  }
 
   const stompClient = new Client({
-    webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+    webSocketFactory: () => {
+      console.log("Creating WebSocket connection to /ws");
+      return new SockJS("http://localhost:8080/ws");
+    },
+
     connectHeaders: {
       Authorization: `Bearer ${token}`,
     },
+
     reconnectDelay: 5000,
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
 
     onConnect: () => {
+      console.log("WebSocket connected successfully");
+      console.log("WebSocket subscription projectId:", projectId);
+
       stompClient.subscribe(
         `/topic/projects/${projectId}/issues`,
         (message: IMessage) => {
           try {
             const event: IssueEvent = JSON.parse(message.body);
 
-            if (!event.eventId || seenEvents.has(event.eventId)) return;
+            if (!event.eventId || seenEvents.has(event.eventId)) {
+              return;
+            }
 
             seenEvents.add(event.eventId);
 
             if (seenEvents.size > 500) {
               const oldest = seenEvents.values().next().value;
-              if (oldest) seenEvents.delete(oldest);
+
+              if (oldest) {
+                seenEvents.delete(oldest);
+              }
             }
+
+            console.log("Realtime issue event received:", event.action);
 
             onEvent(event);
           } catch (error) {
@@ -56,14 +80,31 @@ export function connectRealtime(
           }
         }
       );
+
+      console.log(
+        `Subscribed to /topic/projects/${projectId}/issues`
+      );
     },
 
     onStompError: (frame) => {
-      console.error("WebSocket error:", frame.headers.message);
+      console.error(
+        "STOMP error:",
+        frame.headers.message,
+        frame.body
+      );
     },
 
     onWebSocketError: (error) => {
-      console.error("WebSocket connection error:", error);
+  console.error("WebSocket transport failed:", {
+    error,
+    readyState: stompClient.webSocket?.readyState,
+    connected: stompClient.connected,
+    url: stompClient.webSocket?.url,
+  });
+},
+
+    onWebSocketClose: (event) => {
+      console.warn("WebSocket closed:", event.code, event.reason);
     },
   });
 
@@ -74,6 +115,7 @@ export function connectRealtime(
     if (client === stompClient) {
       client = null;
     }
-    stompClient.deactivate();
+
+    void stompClient.deactivate();
   };
 }

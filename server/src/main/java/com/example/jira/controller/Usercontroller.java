@@ -45,15 +45,24 @@ public class Usercontroller {
     @PostMapping("/signup")
     public Map<String, Object> signup(@RequestBody User user) {
 
-        if (user.getEmail() == null || user.getEmail().isBlank()
-                || userRepository.findByEmail(user.getEmail()).isPresent()) {
+        if (user.getName() == null || user.getName().isBlank()) {
             throw new ResponseStatusException(
-                HttpStatus.CONFLICT, "Email already exists or is invalid");
+                HttpStatus.BAD_REQUEST, "Name is required");
         }
 
-        if (user.getPassword() == null || !isStrongPassword(user.getPassword())) {
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
             throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST, "Password does not meet security requirements");
+                HttpStatus.BAD_REQUEST, "Email is required");
+        }
+
+        if (user.getPassword() == null || user.getPassword().isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Password is required");
+        }
+
+        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "Email already exists");
         }
 
         user.setPassword(passwordEncoder.encode(user.getPassword()));
@@ -68,6 +77,13 @@ public class Usercontroller {
 
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody User request) {
+
+        if (request.getEmail() == null || request.getEmail().isBlank()
+                || request.getPassword() == null
+                || request.getPassword().isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Email and password are required");
+        }
 
         User user = userRepository.findByEmail(request.getEmail())
             .orElseThrow(() -> new ResponseStatusException(
@@ -244,7 +260,8 @@ public class Usercontroller {
         String currentPassword = request.get("currentPassword");
         String newPassword = request.get("newPassword");
 
-        if (currentPassword == null || newPassword == null) {
+        if (currentPassword == null || currentPassword.isEmpty()
+                || newPassword == null || newPassword.isEmpty()) {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST, "Both passwords are required");
         }
@@ -252,12 +269,6 @@ public class Usercontroller {
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST, "Current password is incorrect");
-        }
-
-        if (!isStrongPassword(newPassword)) {
-            throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Password must be at least 8 characters and contain uppercase, lowercase, number and special character");
         }
 
         if (passwordEncoder.matches(newPassword, user.getPassword())) {
@@ -298,18 +309,6 @@ public class Usercontroller {
 
         return Map.of(
             "message", "Account deactivated successfully");
-    }
-
-    // ================= PASSWORD VALIDATION =================
-
-    private boolean isStrongPassword(String password) {
-
-        return password != null
-            && password.length() >= 8
-            && password.matches(".*[A-Z].*")
-            && password.matches(".*[a-z].*")
-            && password.matches(".*[0-9].*")
-            && password.matches(".*[^A-Za-z0-9].*");
     }
 
     // ================= EMAIL CHANGE REQUEST =================

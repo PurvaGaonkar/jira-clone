@@ -15,7 +15,7 @@ public class Healthcontoller {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    @Value("${spring.data.mongodb.uri}")
+    @Value("${spring.mongodb.uri}")
     private String mongoUri;
 
     @GetMapping("/health")
@@ -27,6 +27,8 @@ public class Healthcontoller {
 
             // ✅ Spring config (this is what MongoTemplate actually uses)
             System.out.println("SPRING mongo uri = [" + mongoUri + "]");
+            System.out.println("MONGODB_URI environment variable is set: " +
+        (System.getenv("MONGODB_URI") != null));
 
             mongoTemplate.getDb().runCommand(new Document("ping", 1));
             return "MongoDB connected Successfully";

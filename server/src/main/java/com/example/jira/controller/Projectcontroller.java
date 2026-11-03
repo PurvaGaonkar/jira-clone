@@ -1,4 +1,3 @@
-
 package com.example.jira.controller;
 
 import java.util.List;
@@ -14,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -22,6 +22,7 @@ import com.example.jira.model.Project;
 import com.example.jira.model.User;
 import com.example.jira.repository.Projectrepository;
 import com.example.jira.repository.UserRepository;
+import com.example.jira.service.AuthService;
 
 @CrossOrigin(origins = "*")
 @RestController
@@ -30,14 +31,45 @@ public class Projectcontroller {
 
     private final Projectrepository projectrepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
 
-    public Projectcontroller(Projectrepository projectrepository, UserRepository userRepository) {
+    public Projectcontroller(
+            Projectrepository projectrepository,
+            UserRepository userRepository,
+            AuthService authService) {
         this.projectrepository = projectrepository;
         this.userRepository = userRepository;
+        this.authService = authService;
     }
 
     @PostMapping
-    public Project createProject(@RequestBody Project project) {
+    public Project createProject(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody Project project) {
+
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+
+        User user = authService.authenticate(authorization.substring(7));
+
+        String userId = user.getId();
+
+        project.setOwnerId(userId);
+
+        List<String> members = new ArrayList<>();
+
+        if (project.getMemberIds() != null) {
+            members.addAll(project.getMemberIds());
+        }
+
+        if (!members.contains(userId)) {
+            members.add(userId);
+        }
+
+        project.setMemberIds(members);
+
         return projectrepository.save(project);
     }
 
