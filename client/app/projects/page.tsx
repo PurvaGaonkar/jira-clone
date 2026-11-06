@@ -19,7 +19,7 @@ import React, { useEffect, useState } from "react";
 const page = () => {
   const router = useRouter();
   const { user, setSelectedProject } = useAuth();
-  const [project, setProject] = useState([]);
+  const [project, setProject] = useState<any[]>([]);
   const [issuesbyproject, setissuesbyproject] = useState<any>({});
   const [loading, setloading] = useState(false);
   const fetchproject = async () => {

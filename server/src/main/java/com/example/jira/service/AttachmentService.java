@@ -38,39 +38,52 @@ public class AttachmentService {
             AttachmentRepository attachmentRepository,
             IssueRepository issueRepository,
             Projectrepository projectRepository,
-            @Value("${app.attachments.directory:uploads/attachments}") String storageDirectory) {
+            @Value("${app.attachments.directory:uploads/attachments}")
+            String storageDirectory) {
 
         this.attachmentRepository = attachmentRepository;
         this.issueRepository = issueRepository;
         this.projectRepository = projectRepository;
+
         this.storageDirectory = Paths.get(storageDirectory)
-                .toAbsolutePath().normalize();
+                .toAbsolutePath()
+                .normalize();
     }
 
+    // Upload attachment
     public Attachment upload(String issueId, MultipartFile file, User user) {
+
         if (!ObjectId.isValid(issueId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid issue ID");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Invalid issue ID");
         }
 
         if (file == null || file.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select a file");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Select a file");
         }
 
         if (file.getSize() > MAX_SIZE) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum file size is 10 MB");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Maximum file size is 10 MB");
         }
 
         Issue issue = issueRepository.findById(new ObjectId(issueId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Issue not found"));
 
         Project project = getAuthorizedProject(issue.getProjectId(), user);
 
         String originalName = Paths.get(
-                Objects.requireNonNullElse(file.getOriginalFilename(), "file")
+                Objects.requireNonNullElse(
+                        file.getOriginalFilename(), "file")
                         .replace("\\", "/"))
-                .getFileName().toString();
+                .getFileName()
+                .toString();
 
         String extension = getExtension(originalName);
+
         validateFile(file, extension);
 
         String storedName = UUID.randomUUID() + "." + extension;
@@ -78,14 +91,22 @@ public class AttachmentService {
         try {
             Files.createDirectories(storageDirectory);
 
-            Path destination = storageDirectory.resolve(storedName).normalize();
+            Path destination = storageDirectory
+                    .resolve(storedName)
+                    .normalize();
+
             if (!destination.startsWith(storageDirectory)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid filename");
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Invalid filename");
             }
 
-            Files.copy(file.getInputStream(), destination, StandardCopyOption.COPY_ATTRIBUTES);
+            // Corrected file copy
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, destination);
+            }
 
             Attachment attachment = new Attachment();
+
             attachment.setIssueId(issue.getId());
             attachment.setProjectId(project.getId());
             attachment.setOriginalFileName(originalName);
@@ -104,38 +125,56 @@ public class AttachmentService {
 
         } catch (IOException ex) {
             throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR, "Could not save attachment");
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Could not save attachment");
         }
     }
 
-    public List<Attachment> getIssueAttachments(String issueId, User user) {
+    // Get attachments for an issue
+    public List<Attachment> getIssueAttachments(
+            String issueId, User user) {
+
         if (!ObjectId.isValid(issueId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid issue ID");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Invalid issue ID");
         }
 
         Issue issue = issueRepository.findById(new ObjectId(issueId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Issue not found"));
 
         getAuthorizedProject(issue.getProjectId(), user);
+
         return attachmentRepository.findByIssueId(issueId);
     }
 
+    // Get attachment download path
     public Path getDownloadPath(String attachmentId, User user) {
+
         Attachment attachment = getAttachment(attachmentId);
+
         getAuthorizedProject(attachment.getProjectId(), user);
 
-        Path path = storageDirectory.resolve(attachment.getStoredFileName()).normalize();
+        Path path = storageDirectory
+                .resolve(attachment.getStoredFileName())
+                .normalize();
 
-        if (!path.startsWith(storageDirectory) || !Files.isRegularFile(path)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Attachment file not found");
+        if (!path.startsWith(storageDirectory)
+                || !Files.isRegularFile(path)) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Attachment file not found");
         }
 
         return path;
     }
 
+    // Find attachment by ID
     public Attachment getAttachment(String attachmentId) {
+
         if (!ObjectId.isValid(attachmentId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid attachment ID");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Invalid attachment ID");
         }
 
         return attachmentRepository.findById(new ObjectId(attachmentId))
@@ -143,24 +182,36 @@ public class AttachmentService {
                         HttpStatus.NOT_FOUND, "Attachment not found"));
     }
 
+    // Delete attachment
     public void delete(String attachmentId, User user) {
-        Attachment attachment = getAttachment(attachmentId);
-        Project project = getAuthorizedProject(attachment.getProjectId(), user);
 
-        boolean isUploader = user.getId().equals(attachment.getUploadedBy());
-        boolean isOwner = user.getId().equals(project.getOwnerId());
+        Attachment attachment = getAttachment(attachmentId);
+
+        Project project = getAuthorizedProject(
+                attachment.getProjectId(), user);
+
+        boolean isUploader =
+                user.getId().equals(attachment.getUploadedBy());
+
+        boolean isOwner =
+                user.getId().equals(project.getOwnerId());
 
         if (!isUploader && !isOwner) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN, "Only the uploader or project owner can delete this attachment");
+                    HttpStatus.FORBIDDEN,
+                    "Only the uploader or project owner can delete this attachment");
         }
 
         deleteAttachmentFile(attachment);
+
         attachmentRepository.delete(attachment);
     }
 
+    // Delete all attachments for an issue
     public void deleteAllForIssue(String issueId) {
-        List<Attachment> attachments = attachmentRepository.findByIssueId(issueId);
+
+        List<Attachment> attachments =
+                attachmentRepository.findByIssueId(issueId);
 
         for (Attachment attachment : attachments) {
             deleteAttachmentFile(attachment);
@@ -169,76 +220,122 @@ public class AttachmentService {
         attachmentRepository.deleteByIssueId(issueId);
     }
 
-    private Project getAuthorizedProject(String projectId, User user) {
+    // Verify project membership
+    private Project getAuthorizedProject(
+            String projectId, User user) {
+
         if (!ObjectId.isValid(projectId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid project ID");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Invalid project ID");
         }
 
-        Project project = projectRepository.findById(new ObjectId(projectId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+        Project project = projectRepository
+                .findById(new ObjectId(projectId))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Project not found"));
 
-        boolean isOwner = user.getId().equals(project.getOwnerId());
-        boolean isMember = project.getMemberIds() != null
-                && project.getMemberIds().contains(user.getId());
+        boolean isOwner =
+                user.getId().equals(project.getOwnerId());
+
+        boolean isMember =
+                project.getMemberIds() != null
+                        && project.getMemberIds().contains(user.getId());
 
         if (!isOwner && !isMember) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not a member of this project");
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not a member of this project");
         }
 
         return project;
     }
 
+    // Get file extension
     private String getExtension(String filename) {
+
         int dot = filename.lastIndexOf('.');
+
         if (dot < 0 || dot == filename.length() - 1) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported file type");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Unsupported file type");
         }
 
-        String extension = filename.substring(dot + 1).toLowerCase(Locale.ROOT);
+        String extension = filename
+                .substring(dot + 1)
+                .toLowerCase(Locale.ROOT);
 
-        if (!Set.of("pdf", "png", "jpg", "jpeg", "docx").contains(extension)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only PDF, PNG, JPG and DOCX files are allowed");
+        if (!Set.of("pdf", "png", "jpg", "jpeg", "docx")
+                .contains(extension)) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only PDF, PNG, JPG and DOCX files are allowed");
         }
 
         return extension;
     }
 
-    private void validateFile(MultipartFile file, String extension) {
+    // Validate file content
+    private void validateFile(
+            MultipartFile file, String extension) {
+
         try (InputStream input = file.getInputStream()) {
+
             byte[] header = input.readNBytes(8);
 
             boolean valid = switch (extension) {
-                case "pdf" -> startsWith(header, new byte[]{'%', 'P', 'D', 'F', '-'});
-                case "png" -> startsWith(header, new byte[]{
-                        (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+
+                case "pdf" -> startsWith(
+                        header,
+                        new byte[]{'%', 'P', 'D', 'F', '-'});
+
+                case "png" -> startsWith(
+                        header,
+                        new byte[]{
+                                (byte) 0x89, 'P', 'N', 'G',
+                                13, 10, 26, 10
+                        });
+
                 case "jpg", "jpeg" -> header.length >= 3
                         && (header[0] & 0xFF) == 0xFF
                         && (header[1] & 0xFF) == 0xD8
                         && (header[2] & 0xFF) == 0xFF;
+
                 case "docx" -> isDocx(file);
+
                 default -> false;
             };
 
             if (!valid) {
                 throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "File content does not match its extension");
+                        HttpStatus.BAD_REQUEST,
+                        "File content does not match its extension");
             }
+
         } catch (IOException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not read uploaded file");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Could not read uploaded file");
         }
     }
 
+    // Validate DOCX file
     private boolean isDocx(MultipartFile file) throws IOException {
+
         boolean hasContentTypes = false;
         boolean hasDocument = false;
 
-        try (ZipInputStream zip = new ZipInputStream(file.getInputStream())) {
+        try (ZipInputStream zip =
+                     new ZipInputStream(file.getInputStream())) {
+
             ZipEntry entry;
 
             while ((entry = zip.getNextEntry()) != null) {
+
                 if ("[Content_Types].xml".equals(entry.getName())) {
                     hasContentTypes = true;
                 }
+
                 if ("word/document.xml".equals(entry.getName())) {
                     hasDocument = true;
                 }
@@ -252,36 +349,57 @@ public class AttachmentService {
         return false;
     }
 
-    private boolean startsWith(byte[] actual, byte[] expected) {
-        if (actual.length < expected.length) return false;
+    // Check file signature
+    private boolean startsWith(
+            byte[] actual, byte[] expected) {
+
+        if (actual.length < expected.length) {
+            return false;
+        }
 
         for (int i = 0; i < expected.length; i++) {
-            if (actual[i] != expected[i]) return false;
+            if (actual[i] != expected[i]) {
+                return false;
+            }
         }
 
         return true;
     }
 
+    // Get MIME type
     private String getContentType(String extension) {
+
         return switch (extension) {
+
             case "pdf" -> "application/pdf";
+
             case "png" -> "image/png";
+
             case "jpg", "jpeg" -> "image/jpeg";
-            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+            case "docx" ->
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
             default -> "application/octet-stream";
         };
     }
 
+    // Delete stored file
     private void deleteAttachmentFile(Attachment attachment) {
+
         try {
-            Path path = storageDirectory.resolve(attachment.getStoredFileName()).normalize();
+            Path path = storageDirectory
+                    .resolve(attachment.getStoredFileName())
+                    .normalize();
 
             if (path.startsWith(storageDirectory)) {
                 Files.deleteIfExists(path);
             }
+
         } catch (IOException ex) {
             throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR, "Could not delete attachment file");
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Could not delete attachment file");
         }
     }
 }

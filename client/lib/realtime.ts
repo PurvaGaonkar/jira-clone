@@ -11,6 +11,9 @@ export interface IssueEvent {
 let client: Client | null = null;
 const seenEvents = new Set<string>();
 
+const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL || "http://localhost:8080/ws";
+
 export function connectRealtime(
   projectId: string,
   onEvent: (event: IssueEvent) => void
@@ -21,14 +24,10 @@ export function connectRealtime(
       : null;
 
   if (!token || !projectId) {
-    console.warn("WebSocket not started: missing token or projectId", {
-      hasToken: !!token,
-      projectId,
-    });
+    console.warn("WebSocket not started: missing token or projectId");
     return () => {};
   }
 
-  // Close any previous connection.
   if (client) {
     void client.deactivate();
     client = null;
@@ -36,8 +35,8 @@ export function connectRealtime(
 
   const stompClient = new Client({
     webSocketFactory: () => {
-      console.log("Creating WebSocket connection to /ws");
-      return new SockJS("http://localhost:8080/ws");
+      console.log("Connecting WebSocket:", WS_URL);
+      return new SockJS(WS_URL);
     },
 
     connectHeaders: {
@@ -50,7 +49,6 @@ export function connectRealtime(
 
     onConnect: () => {
       console.log("WebSocket connected successfully");
-      console.log("WebSocket subscription projectId:", projectId);
 
       stompClient.subscribe(
         `/topic/projects/${projectId}/issues`,
@@ -72,36 +70,21 @@ export function connectRealtime(
               }
             }
 
-            console.log("Realtime issue event received:", event.action);
-
             onEvent(event);
           } catch (error) {
             console.error("Invalid realtime event:", error);
           }
         }
       );
-
-      console.log(
-        `Subscribed to /topic/projects/${projectId}/issues`
-      );
     },
 
     onStompError: (frame) => {
-      console.error(
-        "STOMP error:",
-        frame.headers.message,
-        frame.body
-      );
+      console.error("STOMP error:", frame.headers.message, frame.body);
     },
 
     onWebSocketError: (error) => {
-  console.error("WebSocket transport failed:", {
-    error,
-    readyState: stompClient.webSocket?.readyState,
-    connected: stompClient.connected,
-    url: stompClient.webSocket?.url,
-  });
-},
+      console.error("WebSocket transport failed:", error);
+    },
 
     onWebSocketClose: (event) => {
       console.warn("WebSocket closed:", event.code, event.reason);
