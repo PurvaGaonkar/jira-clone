@@ -12,10 +12,10 @@ import {
   Settings,
   Users,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Input } from "./ui/input";
 import Link from "next/link";
+import { Input } from "./ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import CreateIssuemodel from "./CreateIssuemodel";
@@ -25,6 +25,8 @@ import axiosInstance from "@/lib/Axiosinstance";
 
 const Sidebar = () => {
   const router = useRouter();
+  const pathname = usePathname();
+
   const { user, logout, selectedProject, setSelectedProject } = useAuth();
 
   const [project, setProject] = useState<any[]>([]);
@@ -44,7 +46,8 @@ const Sidebar = () => {
         const userProjects = res.data.filter(
           (item: any) =>
             item.ownerId === user.id ||
-           Array.isArray(item.memberIds) && item.memberIds.includes(user.id)
+            (Array.isArray(item.memberIds) &&
+              item.memberIds.includes(user.id))
         );
 
         setProject(userProjects);
@@ -62,62 +65,51 @@ const Sidebar = () => {
     fetchProjects();
   }, [user]);
 
-  const redirectproject = () => {
-    router.push("/create-project");
-  };
-
-  const HandleLogout = () => {
+  const handleLogout = () => {
     logout();
     router.push("/login");
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-screen w-64 items-center justify-center border-r bg-[#F4F5F7]">
-        <span className="text-sm text-[#6B778C]">
-          Loading projects...
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-screen w-64 flex-col border-r bg-[#F4F5F7] text-[#42526E]">
-
-      {/* Header */}
-      <div className="flex items-center gap-2 p-4 pt-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded bg-[#0052CC] text-white">
+    <aside className="flex h-screen w-[250px] shrink-0 flex-col border-r border-slate-200 bg-white">
+      {/* Brand */}
+      <div className="flex h-[76px] items-center gap-3 border-b border-slate-100 px-6">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
           <FolderKanban className="h-5 w-5" />
         </div>
-
-        <span className="text-xl font-bold tracking-tight text-[#172B4D]">
-          Jira Clone
-        </span>
+        <div>
+          <h1 className="text-[17px] font-bold tracking-tight text-slate-900">
+            Jira Clone
+          </h1>
+          <p className="text-[11px] text-slate-400">
+            Project workspace
+          </p>
+        </div>
       </div>
 
-      {/* Project Selector */}
-      {selectedProject && (
-        <div className="border-b px-2 py-3">
+      {/* Project selector */}
+      <div className="px-4 py-5">
+        <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[1.2px] text-slate-400">
+          Current project
+        </p>
+
+        {loading ? (
+          <div className="h-10 animate-pulse rounded-lg bg-slate-100" />
+        ) : (
           <div className="relative">
             <button
               onClick={() => setShowprojectmenu(!showprojectmenu)}
-              className="flex w-full items-center gap-2 rounded border border-[#DFE1E6] bg-white px-3 py-2 text-sm transition-colors hover:border-[#0052CC]"
+              className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm hover:border-blue-300"
             >
-              <div className="h-3 w-3 rounded-full bg-blue-500" />
-
-              <span className="flex-1 truncate text-left font-medium text-[#172B4D]">
-                {selectedProject.name}
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
+              <span className="flex-1 truncate text-left font-medium text-slate-700">
+                {selectedProject?.name || "Select a project"}
               </span>
-
-              <ChevronDown
-                className={`h-4 w-4 transition-transform ${
-                  showprojectmenu ? "rotate-180" : ""
-                }`}
-              />
+              <ChevronDown className="h-4 w-4 text-slate-400" />
             </button>
 
             {showprojectmenu && (
-              <div className="absolute left-2 right-2 top-10 z-50 rounded border border-[#DFE1E6] bg-white shadow-lg">
+              <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
                 {project.map((item: any) => (
                   <button
                     key={item.id}
@@ -125,21 +117,23 @@ const Sidebar = () => {
                       setSelectedProject(item);
                       setShowprojectmenu(false);
                     }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[#EBECF0] ${
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                       selectedProject?.id === item.id
-                        ? "bg-[#DEEBFF] text-[#0052CC]"
-                        : "text-[#42526E]"
+                        ? "bg-blue-50 font-medium text-blue-700"
+                        : "text-slate-600"
                     }`}
                   >
-                    <div className="h-3 w-3 rounded-full bg-blue-500" />
                     {item.name}
                   </button>
                 ))}
 
-                <div className="border-t px-3 py-2">
+                <div className="mt-1 border-t border-slate-100 p-2">
                   <button
-                    onClick={redirectproject}
-                    className="flex w-full items-center gap-2 px-1 py-1.5 text-left text-sm text-[#0052CC] hover:bg-[#EBECF0]"
+                    onClick={() => {
+                      setShowprojectmenu(false);
+                      router.push("/create-project");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-blue-600 hover:bg-blue-50"
                   >
                     <Plus className="h-4 w-4" />
                     Create project
@@ -148,18 +142,21 @@ const Sidebar = () => {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Navigation */}
-      <div className="flex-1 overflow-y-auto px-2 py-4">
-        <div className="mb-6 px-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+      <div className="flex-1 overflow-y-auto px-4">
+        <p className="mb-3 px-2 text-[10px] font-semibold uppercase tracking-[1.2px] text-slate-400">
+          Workspace
+        </p>
 
+        <div className="mb-5">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <Input
               placeholder="Search..."
-              className="h-9 bg-white pl-8 focus-visible:ring-[#0052CC]"
+              className="h-9 rounded-lg border-slate-200 bg-slate-50 pl-9 text-sm"
             />
           </div>
         </div>
@@ -167,62 +164,60 @@ const Sidebar = () => {
         <nav className="space-y-1">
           <NavItem
             href="/"
-            icon={<LayoutDashboard className="h-4 w-4" />}
+            icon={<LayoutDashboard />}
             label="Kanban Board"
+            active={pathname === "/"}
           />
-
           <NavItem
             href="/backlog"
-            icon={<ListTodo className="h-4 w-4" />}
+            icon={<ListTodo />}
             label="Backlog"
+            active={pathname === "/backlog"}
           />
-
           <NavItem
             href="/projects"
-            icon={<FolderKanban className="h-4 w-4" />}
+            icon={<FolderKanban />}
             label="Projects"
+            active={pathname === "/projects"}
           />
-
           <NavItem
             href="/team"
-            icon={<Users className="h-4 w-4" />}
+            icon={<Users />}
             label="Team"
+            active={pathname === "/team"}
           />
-
           <NavItem
             href="/profile"
-            icon={<Settings className="h-4 w-4" />}
+            icon={<Settings />}
             label="Profile"
+            active={pathname === "/profile"}
           />
         </nav>
       </div>
 
-      {/* User Section */}
-      <div className="space-y-3 border-t p-4">
-
-        <div className="flex items-center justify-between px-2">
-          <span className="text-sm font-medium text-[#172B4D]">
+      {/* User section */}
+      <div className="border-t border-slate-100 p-4">
+        <div className="mb-3 flex items-center justify-between px-2">
+          <span className="text-xs font-semibold text-slate-600">
             Notifications
           </span>
           <NotificationBell />
         </div>
 
         {user && (
-          <div className="flex items-center gap-2 rounded bg-white px-2 py-2">
-            <Avatar className="h-8 w-8">
+          <div className="mb-3 flex items-center gap-3 rounded-lg bg-slate-50 p-3">
+            <Avatar className="h-9 w-9">
               <AvatarImage src={user.avatar || "/placeholder.svg"} />
-
-              <AvatarFallback className="bg-blue-100 text-blue-700">
-                {user.name?.charAt(0)}
+              <AvatarFallback className="bg-blue-100 text-sm font-semibold text-blue-700">
+                {user.name?.charAt(0)?.toUpperCase() || "U"}
               </AvatarFallback>
             </Avatar>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-[#172B4D]">
+              <p className="truncate text-sm font-semibold text-slate-800">
                 {user.name}
               </p>
-
-              <p className="truncate text-xs text-[#6B778C]">
+              <p className="truncate text-xs text-slate-500">
                 {user.email}
               </p>
             </div>
@@ -230,7 +225,7 @@ const Sidebar = () => {
         )}
 
         <Button
-          className="w-full justify-start gap-2 bg-[#0052CC] text-white hover:bg-[#0747A6]"
+          className="mb-2 h-10 w-full justify-start gap-2 rounded-lg bg-blue-600 text-sm font-medium text-white hover:bg-blue-700"
           onClick={() => setShowcreateissuemodel(true)}
         >
           <Plus className="h-4 w-4" />
@@ -239,8 +234,8 @@ const Sidebar = () => {
 
         <Button
           variant="ghost"
-          className="w-full justify-start gap-2 text-[#42526E] hover:bg-[#EBECF0]"
-          onClick={HandleLogout}
+          className="h-9 w-full justify-start gap-2 rounded-lg text-sm text-slate-500 hover:bg-red-50 hover:text-red-600"
+          onClick={handleLogout}
         >
           <LogOut className="h-4 w-4" />
           Log out
@@ -251,20 +246,36 @@ const Sidebar = () => {
         isOpen={showcreateissuemodel}
         onClose={() => setShowcreateissuemodel(false)}
       />
-    </div>
+    </aside>
   );
 };
 
 export default Sidebar;
 
-function NavItem({ href, icon, label }: any) {
+function NavItem({
+  href,
+  icon,
+  label,
+  active,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+}) {
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded px-2 py-1.5 text-sm font-medium text-[#42526E] transition-colors hover:bg-[#EBECF0]"
+      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+        active
+          ? "bg-blue-50 text-blue-700"
+          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+      }`}
     >
-      {icon}
-      <span>{label}</span>
+      <span className="flex h-5 w-5 items-center justify-center">
+        {icon}
+      </span>
+      {label}
     </Link>
   );
 }

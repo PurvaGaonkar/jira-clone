@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -16,28 +17,32 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     const isPublic = publicPages.includes(pathname);
 
     if (!isAuthenticated && !isPublic) {
-      router.push("/login");
-    }
-
-    if (isAuthenticated && pathname === "/login") {
-      router.push("/");
+      router.replace("/login");
+    } else if (isAuthenticated && pathname === "/login") {
+      router.replace("/");
     }
 
     setIsReady(true);
   }, [isAuthenticated, pathname, router]);
 
   if (!isReady) {
-    return <div className="h-screen w-screen bg-white" />;
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+      </div>
+    );
   }
 
-  const isAuthPage = pathname === "/login" || pathname === "/setup-project";
+  const isAuthPage = ["/login", "/setup-project"].includes(pathname);
 
-  return isAuthPage ? (
-    children
-  ) : (
-    <div className="flex min-h-screen bg-white">
+  if (isAuthPage) return <>{children}</>;
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-[#F7F8FA] text-slate-800">
       <Sidebar />
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {children}
+      </main>
     </div>
   );
 };
