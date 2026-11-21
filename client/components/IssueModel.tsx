@@ -22,29 +22,51 @@ const priorityLabels: Record<string, string> = {
   LOW: "Low",
 };
 
-const typeIcons: Record<string, string> = {
-  BUG: "🐛",
-  TASK: "✓",
-  STORY: "📖",
-  SUBTASK: "↳",
+const priorityStyles: Record<string, string> = {
+  HIGH: "bg-red-50 text-red-700 border-red-200",
+  MEDIUM: "bg-amber-50 text-amber-700 border-amber-200",
+  LOW: "bg-green-50 text-green-700 border-green-200",
 };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const statusStyles: Record<string, string> = {
+  TODO: "bg-gray-100 text-gray-700",
+  IN_PROGRESS: "bg-blue-100 text-blue-700",
+  DONE: "bg-green-100 text-green-700",
+};
 
-const allowedTypes = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
+const Section = ({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) => (
+  <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="mb-4">
+      <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+      {subtitle && (
+        <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
+      )}
+    </div>
+    {children}
+  </section>
+);
 
-const IssueModel = ({ issue, isOpen, onClose }: any) => {
+const IssueModel = ({
+  issue,
+  isOpen,
+  onClose,
+  onIssueDeleted,
+}: any) => {
   const { user } = useAuth();
 
   const [assignee, setAssignee] = useState<any>(null);
   const [commentText, setCommentText] = useState("");
   const [loading, setLoading] = useState(false);
   const [localIssue, setLocalIssue] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [subtasks, setSubtasks] = useState<any[]>([]);
   const [subtaskTitle, setSubtaskTitle] = useState("");
@@ -52,17 +74,13 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
   const [subtaskLoading, setSubtaskLoading] = useState(false);
 
   const [projectIssues, setProjectIssues] = useState<any[]>([]);
-  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
+  const [selectedDependencies, setSelectedDependencies] =
+    useState<string[]>([]);
   const [dependencyLoading, setDependencyLoading] = useState(false);
-
-  const [attachments, setAttachments] = useState<any[]>([]);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [attachmentLoading, setAttachmentLoading] = useState(false);
-  const [attachmentError, setAttachmentError] = useState("");
 
   const [error, setError] = useState("");
 
-  // INITIALIZE ISSUE
+  // Initialize issue
   useEffect(() => {
     if (!isOpen || !issue?.id) return;
 
@@ -71,34 +89,39 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     setSubtaskTitle("");
     setSubtaskDescription("");
     setError("");
-    setAttachmentError("");
-    setAttachmentFile(null);
-    setAttachments([]);
     setSelectedDependencies(issue.dependsOnIssueIds || []);
+    setDeleteLoading(false);
   }, [isOpen, issue?.id]);
 
-  // FETCH ASSIGNEE
+  // Fetch assignee
   useEffect(() => {
     if (!localIssue?.assigneeId) {
       setAssignee(null);
       return;
     }
 
+    let cancelled = false;
+
     const fetchAssignee = async () => {
       try {
         const res = await axiosInstance.get(
           `/api/users/${localIssue.assigneeId}`
         );
-        setAssignee(res.data);
+
+        if (!cancelled) setAssignee(res.data);
       } catch (err) {
         console.error("Failed to load assignee", err);
       }
     };
 
     fetchAssignee();
+
+    return () => {
+      cancelled = true;
+    };
   }, [localIssue?.assigneeId]);
 
-  // FETCH SUBTASKS AND PROJECT ISSUES
+  // Fetch subtasks and project issues
   useEffect(() => {
     if (!isOpen || !localIssue?.id) return;
 
@@ -119,7 +142,9 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
             `/api/issues/${localIssue.id}/subtasks`
           );
 
-          setSubtasks(Array.isArray(subtaskRes.data) ? subtaskRes.data : []);
+          setSubtasks(
+            Array.isArray(subtaskRes.data) ? subtaskRes.data : []
+          );
         } else {
           setSubtasks([]);
         }
@@ -129,118 +154,45 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     };
 
     fetchRelatedIssues();
-  }, [isOpen, localIssue?.id, localIssue?.projectId, localIssue?.type]);
+  }, [
+    isOpen,
+    localIssue?.id,
+    localIssue?.projectId,
+    localIssue?.type,
+  ]);
 
-  // FETCH ATTACHMENTS
-  const fetchAttachments = async () => {
+  // Delete issue
+  const deleteIssue = async () => {
     if (!localIssue?.id) return;
 
-    try {
-      setAttachmentError("");
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${localIssue.title}"? This action cannot be undone.`
+    );
 
-      const res = await axiosInstance.get(
-        `/api/attachments/issue/${localIssue.id}`
-      );
-
-      setAttachments(Array.isArray(res.data) ? res.data : []);
-    } catch (err: any) {
-      setAttachmentError(
-        err.response?.data?.message || "Failed to load attachments"
-      );
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen && localIssue?.id) {
-      fetchAttachments();
-    }
-  }, [isOpen, localIssue?.id]);
-
-  // UPLOAD ATTACHMENT
-  const uploadAttachment = async () => {
-    if (!attachmentFile || !localIssue) return;
-
-    if (!allowedTypes.includes(attachmentFile.type)) {
-      setAttachmentError("Only PDF, PNG, JPG and DOCX files are allowed.");
-      return;
-    }
-
-    if (attachmentFile.size > MAX_FILE_SIZE) {
-      setAttachmentError("File size must not exceed 10MB.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", attachmentFile);
+    if (!confirmed) return;
 
     try {
-      setAttachmentLoading(true);
-      setAttachmentError("");
+      setDeleteLoading(true);
+      setError("");
 
-      await axiosInstance.post(
-        `/api/attachments/issue/${localIssue.id}`,
-        formData
-      );
+      await axiosInstance.delete(`/api/issues/${localIssue.id}`);
 
-      setAttachmentFile(null);
-
-      const fileInput = document.getElementById(
-        "issue-attachment-input"
-      ) as HTMLInputElement | null;
-
-      if (fileInput) fileInput.value = "";
-
-      await fetchAttachments();
+      onIssueDeleted?.(String(localIssue.id));
+      onClose();
     } catch (err: any) {
-      setAttachmentError(
-        err.response?.data?.message || "File upload failed"
+      const responseData = err.response?.data;
+
+      setError(
+        responseData?.message ||
+          (typeof responseData === "string" ? responseData : "") ||
+          "Failed to delete issue. Delete its subtasks first if it has any."
       );
     } finally {
-      setAttachmentLoading(false);
+      setDeleteLoading(false);
     }
   };
 
-  // DOWNLOAD ATTACHMENT
-  const downloadAttachment = async (attachment: any) => {
-    try {
-      const res = await axiosInstance.get(
-        `/api/attachments/${attachment.id}/download`,
-        { responseType: "blob" }
-      );
-
-      const url = URL.createObjectURL(res.data);
-      const link = document.createElement("a");
-
-      link.href = url;
-      link.download = attachment.originalFileName || "attachment";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setAttachmentError("Failed to download file.");
-    }
-  };
-
-  // DELETE ATTACHMENT
-  const deleteAttachment = async (attachmentId: string) => {
-    try {
-      setAttachmentError("");
-
-      await axiosInstance.delete(
-        `/api/attachments/${attachmentId}`
-      );
-
-      await fetchAttachments();
-    } catch (err: any) {
-      setAttachmentError(
-        err.response?.data?.message || "Failed to delete attachment"
-      );
-    }
-  };
-
-  // SAVE COMMENT
+  // Save comment
   const saveComment = async () => {
     if (!commentText.trim() || !user || !localIssue) return;
 
@@ -286,7 +238,7 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     }
   };
 
-  // CREATE SUBTASK
+  // Create subtask
   const createSubtask = async () => {
     if (!subtaskTitle.trim() || !localIssue) return;
 
@@ -319,8 +271,11 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     }
   };
 
-  // UPDATE SUBTASK STATUS
-  const updateSubtaskStatus = async (subtask: any, status: string) => {
+  // Update subtask status
+  const updateSubtaskStatus = async (
+    subtask: any,
+    status: string
+  ) => {
     try {
       setError("");
 
@@ -341,7 +296,7 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     }
   };
 
-  // TOGGLE DEPENDENCY
+  // Toggle dependency
   const toggleDependency = (dependencyId: string) => {
     setSelectedDependencies((prev) =>
       prev.includes(dependencyId)
@@ -350,7 +305,7 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
     );
   };
 
-  // SAVE DEPENDENCIES
+  // Save dependencies
   const saveDependencies = async () => {
     if (!localIssue) return;
 
@@ -381,8 +336,10 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
   if (!localIssue && isOpen) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent>
-          <div className="p-8 text-center">Loading issue...</div>
+        <DialogContent className="max-w-md">
+          <div className="p-8 text-center text-sm text-gray-500">
+            Loading task...
+          </div>
         </DialogContent>
       </Dialog>
     );
@@ -390,373 +347,383 @@ const IssueModel = ({ issue, isOpen, onClose }: any) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 gap-0 border-none shadow-2xl">
-        <DialogHeader className="p-4 border-b">
-          <DialogTitle className="text-sm font-semibold text-[#5E6C84]">
-            {localIssue?.title ?? "Loading issue..."}
-          </DialogTitle>
-        </DialogHeader>
-
+      <DialogContent
+        className="flex flex-col w-[95vw] !max-w-[1100px] max-h-[92vh]
+        overflow-hidden p-0 gap-0 rounded-xl border border-gray-200 shadow-xl"
+      >
         {!localIssue ? (
-          <div className="flex h-64 items-center justify-center text-sm text-[#6B778C]">
-            Loading issue...
+          <div className="flex h-64 items-center justify-center text-sm text-gray-500">
+            Loading task...
           </div>
         ) : (
-          <div className="flex flex-col md:flex-row">
-            {/* MAIN CONTENT */}
-            <div className="flex-1 p-6">
-              <h2 className="text-2xl font-semibold mb-4">
+          <>
+            {/* HEADER */}
+            <DialogHeader className="shrink-0 border-b border-gray-200 bg-gray-50/80 px-6 py-4">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span className="text-xs font-semibold text-gray-500">
+                  {localIssue.key || "TASK"}
+                </span>
+
+                <Badge
+                  className={`border-0 text-xs ${
+                    statusStyles[localIssue.status] ||
+                    "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {localIssue.status?.replace("_", " ") || "TODO"}
+                </Badge>
+
+                <Badge
+                  className={`border text-xs ${
+                    priorityStyles[localIssue.priority] ||
+                    "bg-gray-50 text-gray-600"
+                  }`}
+                >
+                  {priorityLabels[localIssue.priority] ||
+                    localIssue.priority}
+                </Badge>
+              </div>
+
+              <DialogTitle className="text-xl font-semibold tracking-tight text-gray-900">
                 {localIssue.title}
-              </h2>
+              </DialogTitle>
+            </DialogHeader>
 
-              <h3 className="text-sm font-semibold mb-2">
-                Description
-              </h3>
-
-              <p className="text-sm text-[#42526E] mb-8">
-                {localIssue.description || "No description"}
-              </p>
-
-              {error && (
-                <div className="mb-5 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
-
-              {/* ATTACHMENTS */}
-              <section className="mb-8">
-                <h3 className="text-sm font-semibold mb-3">
-                  Attachments ({attachments.length})
-                </h3>
-
-                <div className="rounded-md border p-4 space-y-3">
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      id="issue-attachment-input"
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.docx"
-                      className="block w-full text-sm"
-                      onChange={(e) => {
-                        setAttachmentFile(e.target.files?.[0] || null);
-                        setAttachmentError("");
-                      }}
-                    />
-
-                    <Button
-                      size="sm"
-                      onClick={uploadAttachment}
-                      disabled={!attachmentFile || attachmentLoading}
-                    >
-                      {attachmentLoading ? "Uploading..." : "Upload"}
-                    </Button>
-                  </div>
-
-                  <p className="text-xs text-gray-500">
-                    Allowed: PDF, PNG, JPG, DOCX. Maximum size: 10MB.
+            {/* SCROLLABLE BODY */}
+            <div className="grid min-h-0 flex-1 overflow-y-auto overscroll-contain grid-cols-1 md:grid-cols-[minmax(0,1fr)_260px]">
+              {/* MAIN COLUMN */}
+              <div className="min-w-0 space-y-4 p-5 md:p-6">
+                {/* Description */}
+                <Section title="Description">
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-600">
+                    {localIssue.description || "No description provided."}
                   </p>
+                </Section>
 
-                  {attachmentError && (
-                    <p className="text-sm text-red-600">
-                      {attachmentError}
-                    </p>
-                  )}
+                {error && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {error}
+                  </div>
+                )}
 
-                  {attachments.length > 0 ? (
-                    <div className="space-y-2">
-                      {attachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border p-3"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium break-all">
-                              {attachment.originalFileName}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {(
-                                (attachment.size || 0) /
-                                (1024 * 1024)
-                              ).toFixed(2)}{" "}
-                              MB
-                            </p>
-                          </div>
-
-                          <div className="flex gap-2 shrink-0">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                downloadAttachment(attachment)
-                              }
-                            >
-                              Download
-                            </Button>
-
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() =>
-                                deleteAttachment(attachment.id)
-                              }
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      No attachments uploaded yet.
-                    </p>
-                  )}
-                </div>
-              </section>
-
-              {/* SUBTASK SECTION */}
-              {localIssue.type !== "SUBTASK" && (
-                <section className="mb-8">
-                  <h3 className="text-sm font-semibold mb-3">
-                    Subtasks ({subtasks.length})
-                  </h3>
-
-                  <div className="space-y-2 mb-4">
+                {/* Subtasks */}
+                {localIssue.type !== "SUBTASK" && (
+                  <Section
+                    title={`Subtasks (${subtasks.length})`}
+                    subtitle="Break this task into smaller tasks."
+                  >
                     {subtasks.length > 0 ? (
-                      subtasks.map((subtask) => (
-                        <div
-                          key={subtask.id}
-                          className="flex items-center justify-between gap-3 rounded-md border p-3"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium">
-                              {subtask.title}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {subtask.key || subtask.id}
-                            </p>
-                          </div>
-
-                          <select
-                            value={subtask.status || "TODO"}
-                            onChange={(e) =>
-                              updateSubtaskStatus(subtask, e.target.value)
-                            }
-                            className="rounded-md border p-2 text-xs"
+                      <div className="mb-4 space-y-2">
+                        {subtasks.map((subtask) => (
+                          <div
+                            key={subtask.id}
+                            className="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between"
                           >
-                            <option value="TODO">To Do</option>
-                            <option value="IN_PROGRESS">In Progress</option>
-                            <option value="DONE">Done</option>
-                          </select>
-                        </div>
-                      ))
+                            <div className="min-w-0">
+                              <p className="break-words text-sm font-medium text-gray-700">
+                                {subtask.title}
+                              </p>
+                              <p className="mt-1 text-xs text-gray-400">
+                                {subtask.key || subtask.id}
+                              </p>
+                            </div>
+
+                            <select
+                              value={subtask.status || "TODO"}
+                              onChange={(e) =>
+                                updateSubtaskStatus(
+                                  subtask,
+                                  e.target.value
+                                )
+                              }
+                              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
+                            >
+                              <option value="TODO">To Do</option>
+                              <option value="IN_PROGRESS">
+                                In Progress
+                              </option>
+                              <option value="DONE">Done</option>
+                            </select>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
-                      <p className="text-sm text-gray-500">
+                      <p className="mb-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-400">
                         No subtasks created yet.
+                      </p>
+                    )}
+
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                      <h4 className="mb-3 text-xs font-semibold text-gray-700">
+                        Create a subtask
+                      </h4>
+
+                      <input
+                        value={subtaskTitle}
+                        onChange={(e) =>
+                          setSubtaskTitle(e.target.value)
+                        }
+                        placeholder="Subtask title"
+                        className="mb-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
+                      />
+
+                      <Textarea
+                        value={subtaskDescription}
+                        onChange={(e) =>
+                          setSubtaskDescription(e.target.value)
+                        }
+                        placeholder="Description (optional)"
+                        className="bg-white"
+                      />
+
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          size="sm"
+                          onClick={createSubtask}
+                          disabled={
+                            !subtaskTitle.trim() || subtaskLoading
+                          }
+                        >
+                          {subtaskLoading
+                            ? "Creating..."
+                            : "Create Subtask"}
+                        </Button>
+                      </div>
+                    </div>
+                  </Section>
+                )}
+
+                {/* Dependencies */}
+                <Section
+                  title="Dependencies"
+                  subtitle="Tasks that must be completed before this task can start."
+                >
+                  <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-gray-100 p-2">
+                    {projectIssues.filter(
+                      (item) =>
+                        item.id !== localIssue.id &&
+                        item.type !== "SUBTASK" &&
+                        !item.parentIssueId
+                    ).length > 0 ? (
+                      projectIssues
+                        .filter(
+                          (item) =>
+                            item.id !== localIssue.id &&
+                            item.type !== "SUBTASK" &&
+                            !item.parentIssueId
+                        )
+                        .map((item) => (
+                          <label
+                            key={item.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-gray-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedDependencies.includes(
+                                item.id
+                              )}
+                              onChange={() =>
+                                toggleDependency(item.id)
+                              }
+                              className="mt-1 accent-blue-600"
+                            />
+
+                            <span className="min-w-0 text-sm text-gray-600">
+                              <span className="font-medium text-gray-500">
+                                {item.key || item.id}
+                              </span>
+                              <span className="ml-1 break-words">
+                                {item.title}
+                              </span>
+                            </span>
+                          </label>
+                        ))
+                    ) : (
+                      <p className="p-3 text-sm text-gray-400">
+                        No other tasks available.
                       </p>
                     )}
                   </div>
 
-                  <div className="space-y-2 rounded-md border p-3">
-                    <h4 className="text-sm font-semibold">
-                      Create Subtask
-                    </h4>
-
-                    <input
-                      value={subtaskTitle}
-                      onChange={(e) => setSubtaskTitle(e.target.value)}
-                      placeholder="Subtask title"
-                      className="w-full rounded-md border p-2 text-sm"
-                    />
-
-                    <Textarea
-                      value={subtaskDescription}
-                      onChange={(e) =>
-                        setSubtaskDescription(e.target.value)
-                      }
-                      placeholder="Subtask description"
-                    />
-
-                    <div className="flex justify-end">
-                      <Button
-                        size="sm"
-                        onClick={createSubtask}
-                        disabled={!subtaskTitle.trim() || subtaskLoading}
-                      >
-                        {subtaskLoading ? "Creating..." : "Create Subtask"}
-                      </Button>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {/* DEPENDENCY SECTION */}
-              <section className="mb-8">
-                <h3 className="text-sm font-semibold mb-3">
-                  Task Dependencies
-                </h3>
-
-                <p className="text-xs text-gray-500 mb-3">
-                  Select tasks that must be completed before this task can start.
-                </p>
-
-                <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border p-3">
-                  {projectIssues.filter(
-                    (item) =>
-                      item.id !== localIssue.id &&
-                      item.type !== "SUBTASK" &&
-                      !item.parentIssueId
-                  ).length > 0 ? (
-                    projectIssues
-                      .filter(
-                        (item) =>
-                          item.id !== localIssue.id &&
-                          item.type !== "SUBTASK" &&
-                          !item.parentIssueId
-                      )
-                      .map((item) => (
-                        <label
-                          key={item.id}
-                          className="flex items-center gap-2 text-sm cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedDependencies.includes(item.id)}
-                            onChange={() => toggleDependency(item.id)}
-                          />
-                          <span>
-                            {item.key || item.id} - {item.title}
-                          </span>
-                        </label>
-                      ))
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      No other tasks available in this project.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex justify-end mt-3">
-                  <Button
-                    size="sm"
-                    onClick={saveDependencies}
-                    disabled={dependencyLoading}
-                  >
-                    {dependencyLoading ? "Saving..." : "Save Dependencies"}
-                  </Button>
-                </div>
-              </section>
-
-              {/* TIME TRACKING AND WORK LOGS */}
-              <WorkLogSection
-                issueId={localIssue.id}
-                sprintId={localIssue.sprintId}
-              />
-
-              {/* COMMENTS */}
-              <h3 className="text-sm font-semibold mb-4">
-                Comments ({localIssue.comments?.length || 0})
-              </h3>
-
-              <div className="space-y-4 mb-6">
-                {localIssue.comments?.length > 0 ? (
-                  localIssue.comments.map(
-                    (comment: string, index: number) => (
-                      <div
-                        key={index}
-                        className="rounded-md border border-[#DFE1E6] bg-[#F4F5F7] p-3"
-                      >
-                        <p className="text-sm text-[#172B4D] whitespace-pre-wrap">
-                          {comment}
-                        </p>
-                      </div>
-                    )
-                  )
-                ) : (
-                  <p className="text-sm text-[#6B778C] italic">
-                    No comments yet
-                  </p>
-                )}
-              </div>
-
-              {/* ADD COMMENT */}
-              <div className="flex gap-3">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.avatar} />
-                  <AvatarFallback>ME</AvatarFallback>
-                </Avatar>
-
-                <div className="flex-1">
-                  <Textarea
-                    placeholder="Add a comment..."
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                  />
-
-                  <div className="flex justify-end mt-2">
+                  <div className="mt-3 flex justify-end">
                     <Button
                       size="sm"
-                      className="bg-[#0052CC] text-white"
-                      disabled={!commentText.trim() || loading}
-                      onClick={saveComment}
+                      onClick={saveDependencies}
+                      disabled={dependencyLoading}
                     >
-                      Save
+                      {dependencyLoading
+                        ? "Saving..."
+                        : "Save Dependencies"}
+                    </Button>
+                  </div>
+                </Section>
+
+                {/* Work Logs */}
+                <Section title="Time Tracking">
+                  <WorkLogSection
+                    issueId={localIssue.id}
+                    sprintId={localIssue.sprintId}
+                  />
+                </Section>
+
+                {/* Comments */}
+                <Section
+                  title={`Comments (${localIssue.comments?.length || 0})`}
+                >
+                  <div className="space-y-3">
+                    {localIssue.comments?.length > 0 ? (
+                      localIssue.comments.map(
+                        (comment: string, index: number) => (
+                          <div
+                            key={index}
+                            className="rounded-lg border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <p className="whitespace-pre-wrap break-words text-sm leading-5 text-gray-600">
+                              {comment}
+                            </p>
+                          </div>
+                        )
+                      )
+                    ) : (
+                      <p className="text-sm text-gray-400">
+                        No comments yet.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-start gap-3">
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarImage src={user?.avatar} />
+                      <AvatarFallback className="bg-blue-50 text-blue-700 text-xs">
+                        ME
+                      </AvatarFallback>
+                    </Avatar>
+
+                    <div className="min-w-0 flex-1">
+                      <Textarea
+                        placeholder="Write a comment..."
+                        value={commentText}
+                        onChange={(e) =>
+                          setCommentText(e.target.value)
+                        }
+                        className="min-h-[90px]"
+                      />
+
+                      <div className="mt-2 flex justify-end">
+                        <Button
+                          size="sm"
+                          disabled={!commentText.trim() || loading}
+                          onClick={saveComment}
+                        >
+                          {loading ? "Saving..." : "Add Comment"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </Section>
+              </div>
+
+              {/* SIDEBAR */}
+              <aside className="border-t border-gray-200 bg-gray-50 p-5 md:border-l md:border-t-0">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                      Task Properties
+                    </h3>
+
+                    <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+                      <div>
+                        <p className="mb-1 text-xs text-gray-400">
+                          Status
+                        </p>
+                        <Badge
+                          className={`border-0 ${
+                            statusStyles[localIssue.status] ||
+                            "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {localIssue.status?.replace("_", " ")}
+                        </Badge>
+                      </div>
+
+                      <div>
+                        <p className="mb-1 text-xs text-gray-400">
+                          Priority
+                        </p>
+                        <Badge
+                          className={`border ${
+                            priorityStyles[localIssue.priority] ||
+                            "bg-gray-50 text-gray-600"
+                          }`}
+                        >
+                          {priorityLabels[localIssue.priority] ||
+                            localIssue.priority}
+                        </Badge>
+                      </div>
+
+                      {/* Assignee */}
+                      <div>
+                        <p className="mb-1 text-xs text-gray-400">
+                          Assignee
+                        </p>
+
+                        {assignee ? (
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7">
+                              <AvatarImage src={assignee.avatar} />
+                              <AvatarFallback className="bg-gray-100 text-xs">
+                                {assignee.name?.[0]?.toUpperCase() ||
+                                  "U"}
+                              </AvatarFallback>
+                            </Avatar>
+
+                            <span className="break-words text-sm text-gray-700">
+                              {assignee.name}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Task ID */}
+                      <div>
+                        <p className="mb-1 text-xs text-gray-400">
+                          Task ID
+                        </p>
+                        <p className="break-all text-xs text-gray-600">
+                          {localIssue.key || localIssue.id}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Delete */}
+                  <div className="rounded-xl border border-red-100 bg-white p-4">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Danger Zone
+                    </h3>
+
+                    <p className="mt-1 mb-3 text-xs leading-5 text-gray-400">
+                      Deleting this task cannot be undone.
+                    </p>
+
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="w-full"
+                      onClick={deleteIssue}
+                      disabled={deleteLoading}
+                    >
+                      {deleteLoading ? "Deleting..." : "Delete Task"}
                     </Button>
                   </div>
                 </div>
-              </div>
+              </aside>
             </div>
-
-            {/* SIDEBAR */}
-            <div className="w-full md:w-[280px] p-6 border-l">
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-xs font-bold uppercase mb-1">
-                    Status
-                  </h3>
-                  <Badge>{localIssue.status}</Badge>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-bold uppercase mb-1">
-                    Type
-                  </h3>
-                  <span>
-                    {typeIcons[localIssue.type] || "✓"} {localIssue.type}
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-bold uppercase mb-1">
-                    Priority
-                  </h3>
-                  <Badge>
-                    {priorityLabels[localIssue.priority] || localIssue.priority}
-                  </Badge>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-bold uppercase mb-1">
-                    Assignee
-                  </h3>
-
-                  {assignee ? (
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={assignee.avatar} />
-                        <AvatarFallback>
-                          {assignee.name?.[0] || "U"}
-                        </AvatarFallback>
-                      </Avatar>
-
-                      <span className="text-sm">{assignee.name}</span>
-                    </div>
-                  ) : (
-                    <span className="text-sm italic">Unassigned</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          </>
         )}
       </DialogContent>
     </Dialog>

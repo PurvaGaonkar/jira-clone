@@ -15,15 +15,9 @@ interface KanbanCardProps {
 }
 
 const priorityColors: Record<string, string> = {
-  HIGH: "bg-red-100 text-red-800",
-  MEDIUM: "bg-yellow-100 text-yellow-800",
-  LOW: "bg-green-100 text-green-800",
-};
-
-const issueTypeColors: Record<string, string> = {
-  BUG: "bg-red-500",
-  TASK: "bg-blue-500",
-  STORY: "bg-purple-500",
+  HIGH: "bg-red-50 text-red-700 border-red-100",
+  MEDIUM: "bg-amber-50 text-amber-700 border-amber-100",
+  LOW: "bg-green-50 text-green-700 border-green-100",
 };
 
 const CardContent = ({
@@ -69,49 +63,41 @@ const CardContent = ({
   return (
     <div
       onClick={onClick}
-      className={`rounded border bg-white p-3 shadow-sm transition-colors ${
-        overlay
-          ? "shadow-lg border-[#0052CC]"
-          : "hover:bg-[#F4F5F7] cursor-pointer"
-      }`}
+      className={`rounded-lg border border-gray-200 bg-white
+        px-4 py-3.5 shadow-sm transition-all duration-150
+        ${overlay
+          ? "border-blue-300 shadow-lg"
+          : "hover:border-gray-300 hover:shadow-md cursor-pointer"
+        }`}
     >
-      <p className="text-sm font-medium text-[#172B4D] mb-3 leading-tight">
+      <p className="mb-3 break-words text-sm font-medium leading-5 text-gray-800">
         {issue.title}
       </p>
 
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div
-            className={`h-4 w-4 rounded ${
-              issueTypeColors[issue.type] || "bg-gray-400"
-            }`}
-          />
-
-          <span className="text-[11px] font-bold text-[#5E6C84]">
-            {issue.key}
-          </span>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-medium text-gray-500">
+          {issue.key}
+        </span>
 
         <Badge
-          className={`text-xs ${
-            priorityColors[issue.priority] || "bg-gray-100 text-gray-800"
-          }`}
+          className={`shrink-0 border text-[11px] font-medium
+            ${priorityColors[issue.priority] ||
+            "bg-gray-50 text-gray-600 border-gray-200"}`}
         >
-          {issue.priority}
+          {issue.priority || "MEDIUM"}
         </Badge>
       </div>
 
       {assignee && (
-        <div className="flex items-center gap-2">
-          <Avatar className="h-5 w-5">
+        <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-2.5">
+          <Avatar className="h-6 w-6">
             <AvatarImage src={assignee.avatar} />
-
-            <AvatarFallback>
-              {assignee.name?.[0]}
+            <AvatarFallback className="bg-gray-100 text-gray-600 text-[10px]">
+              {assignee.name?.[0]?.toUpperCase() || "U"}
             </AvatarFallback>
           </Avatar>
 
-          <span className="text-[10px] text-[#626F86]">
+          <span className="truncate text-xs text-gray-500">
             {assignee.name}
           </span>
         </div>

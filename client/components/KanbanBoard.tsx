@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -267,6 +266,13 @@ const KanbanBoard = () => {
         issue={selectedIssue}
         isOpen={!!selectedIssue}
         onClose={() => setSelectedIssue(null)}
+        onIssueDeleted={(deletedId: string) => {
+          setIssues((prev) =>
+            prev.filter(
+              (item) => String(item.id) !== String(deletedId)
+            )
+          );
+        }}
       />
 
       {isMounted &&
